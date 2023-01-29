@@ -1,4 +1,5 @@
 # SurfTimer - Map Chooser, Nominations, and RTV
+### Note: This fork is built for Infra's SurfTimer implementation and will not work with the regular SurfTimer. Use this instead: https://github.com/SurfTimer/SurfTimer-MapChooser
 
 ## Introduction
 
@@ -14,7 +15,8 @@ Preview of Nomination Menu:
 
 ## Requirements
 
-* [SurfTimer](https://github.com/surftimer/Surftimer-Official)
+* Infra's SurfTimer
+* Infra's SurfAPI Network (access to entry point)
 * Sourcemod 1.11 (Please use the latest stable version!)
 * A MySQL Database (Supported: MySQL 5.7, MySQL 8+, MariaDB)
 

@@ -38,16 +38,17 @@
 #include <surftimer>
 #include <autoexecconfig>
 #include <colorlib>
+#include <ripext>
 
 #pragma newdecls required
 
 public Plugin myinfo =
 {
-	name = "SurfTimer MapChooser",
+	name = "SurfTimer MapChooser - Adapted for Infra's SurfTimer",
 	author = "AlliedModders LLC & SurfTimer Contributors",
 	description = "Automated Map Voting",
-	version = "2.0.2",
-	url = "https://github.com/1zc/surftimer-mapchooser"
+	version = "2.0.2-IST",
+	url = "https://github.com/1zc/surftimer-mapchooser-for-ist"
 };
 
 /* Valve ConVars */
@@ -119,10 +120,14 @@ Handle g_MapVoteStartedForward = null;
 Handle g_hDb = null;
 #define PERCENT 0x25
 
+// API Connection
+ConVar g_hAPIUrl = null;
+ConVar g_hAPIKey = null;
+
 //SQL Queries
-char sql_SelectMapListSpecific[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier = %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
-char sql_SelectMapListRange[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier >= %s AND tier <= %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
-char sql_SelectMapList[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
+// char sql_SelectMapListSpecific[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier = %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
+// char sql_SelectMapListRange[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier >= %s AND tier <= %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
+// char sql_SelectMapList[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
 char sql_SelectRank[] = "SELECT COUNT(*) FROM ck_playerrank WHERE style = 0 AND points >= (SELECT points FROM ck_playerrank WHERE steamid = '%s' AND style = 0);";
 char sql_SelectPoints[] = "SELECT points FROM ck_playerrank WHERE steamid = '%s' AND style = 0";
 
@@ -137,7 +142,7 @@ public void OnPluginStart()
 {
 	LoadTranslations("st-mapchooser.phrases");
 
-	db_setupDatabase();
+	// db_setupDatabase();
 	
 	int arraySize = ByteCountToCells(PLATFORM_MAX_PATH);
 	g_MapList = new ArrayList(arraySize);
@@ -256,6 +261,8 @@ public void OnConfigsExecuted()
 		}
 	}
 
+	g_hAPIUrl = FindConVar("ck_api_url");
+	g_hAPIKey = FindConVar("ck_api_key");
 
 	g_ChatPrefix = FindConVar("ck_chat_prefix");
 	GetConVarString(g_ChatPrefix, g_szChatPrefix, sizeof(g_szChatPrefix));
@@ -354,6 +361,21 @@ public void OnClientDisconnect(int client)
 	g_RankREQ[client] = false;
 	g_PointsREQ[client] = false;
 	g_Voters--;
+}
+
+public HTTPRequest setupAPIRequest(char endpoint[128])
+{
+	char APIURL[256];
+	GetConVarString(g_hAPIUrl, APIURL, sizeof(APIURL));
+	StrCat(APIURL, sizeof(APIURL), endpoint);
+
+	HTTPRequest request = new HTTPRequest(APIURL);
+
+	char APIKey[256];
+	GetConVarString(g_hAPIKey, APIKey, sizeof(APIKey));
+	request.SetHeader("Authorization", APIKey);
+
+	return request;
 }
 
 public Action Command_SetNextmap(int client, int args)
@@ -1289,70 +1311,83 @@ public int Native_GetNominatedMapList(Handle plugin, int numParams)
 	return 0;
 }
 
-public void db_setupDatabase()
-{
-	char szError[255];
-	g_hDb = SQL_Connect("surftimer", false, szError, 255);
+// public void db_setupDatabase()
+// {
+// 	char szError[255];
+// 	g_hDb = SQL_Connect("surftimer", false, szError, 255);
 
-	if (g_hDb == null)
-		SetFailState("[Mapchooser] Unable to connect to database (%s)", szError);
+// 	if (g_hDb == null)
+// 		SetFailState("[Mapchooser] Unable to connect to database (%s)", szError);
 	
-	char szIdent[8];
-	SQL_ReadDriver(g_hDb, szIdent, 8);
+// 	char szIdent[8];
+// 	SQL_ReadDriver(g_hDb, szIdent, 8);
 
-	if (!StrEqual(szIdent, "mysql", false))
-	{
-		SetFailState("[Mapchooser] Invalid database type");
-		return;
-	}
-}
+// 	if (!StrEqual(szIdent, "mysql", false))
+// 	{
+// 		SetFailState("[Mapchooser] Invalid database type");
+// 		return;
+// 	}
+// }
 
 public void SelectMapList()
 {
-	char szQuery[512], szTier[16], szBuffer[2][32];
+	char requestURL[128], szTier[16], szBuffer[2][32];
 
 	GetConVarString(g_Cvar_ServerTier, szTier, sizeof(szTier));
 	ExplodeString(szTier, ".", szBuffer, 2, 32);
 
 	if (StrEqual(szBuffer[1], "0"))
-		// OLD QUERY Format(szQuery, sizeof(szQuery), "SELECT mapname, tier FROM ck_maptier WHERE tier = %s ORDER BY tier asc, mapname asc;", szBuffer[0]);
-		Format(szQuery, sizeof(szQuery), sql_SelectMapListSpecific, szBuffer[0]);
-	else if (strlen(szBuffer[1]) > 0)
-		// OLD QUERY Format(szQuery, sizeof(szQuery), "SELECT mapname, tier FROM ck_maptier WHERE tier >= %s AND tier <= %s ORDER BY tier asc, mapname asc;", szBuffer[0], szBuffer[1]);
-		Format(szQuery, sizeof(szQuery), sql_SelectMapListRange, szBuffer[0], szBuffer[1]);
-	else
-		// OLD QUERY Format(szQuery, sizeof(szQuery), "SELECT mapname, tier FROM ck_maptier ORDER BY tier asc, mapname asc;");
-		Format(szQuery, sizeof(szQuery), sql_SelectMapList);
-
-	SQL_TQuery(g_hDb, SelectMapListCallback, szQuery, DBPrio_Low);
-}
-
-public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error, any data)
-{
-	if (hndl == null)
 	{
-		LogError("[Mapchooser] SQL Error (SelectMapListCallback): %s", error);
-		return;
+		// Format(szQuery, sizeof(szQuery), sql_SelectMapListSpecific, szBuffer[0]);
+		Format(requestURL, sizeof(requestURL), "mapchooser/viewMapList/%s/0", szBuffer[0]);
 	}
 
-	if (SQL_HasResultSet(hndl))
+	else if (strlen(szBuffer[1]) > 0)
+	{	
+		// Format(szQuery, sizeof(szQuery), sql_SelectMapListRange, szBuffer[0], szBuffer[1]);
+		Format(requestURL, sizeof(requestURL), "mapchooser/viewMapList/%s/%s", szBuffer[0], szBuffer[1]);
+	}
+
+	else
+	{
+		// Format(szQuery, sizeof(szQuery), sql_SelectMapList);
+		Format(requestURL, sizeof(requestURL), "mapchooser/viewMapList/0/0");
+	}
+
+	// SQL_TQuery(g_hDb, SelectMapListCallback, szQuery, DBPrio_Low);
+	HTTPRequest request = setupAPIRequest(requestURL);
+	request.Get(API_SelectMapListCallback);
+}
+
+public void API_SelectMapListCallback(HTTPResponse response, any data)
+{
+	if (response.Status != HTTPStatus_OK)
+    {
+		LogError("IST-MAPCHOOSER >> FATAL ERROR >> Failed to GET mapchooser/viewMapList.");
+	}
+
+	JSONObject maplistObj = view_as<JSONObject>(response.Data);
+	if (!maplistObj.IsNull("maplist"))
 	{
 		g_MapList.Clear();
 		g_MapListTier.Clear();
-
 		char szMapName[128], szValue[256], stages[128], bonuses[128], sztier[128];
 		int tier, zones, bonus;
-		while (SQL_FetchRow(hndl))
+
+		JSONArray maplistObjList = view_as<JSONArray>(maplistObj.Get("maplist"));
+		for (int i = 0; i < maplistObjList.Length; i++)
 		{
-			SQL_FetchString(hndl, 0, szMapName, sizeof(szMapName));
-			tier = SQL_FetchInt(hndl, 1);
-			zones = SQL_FetchInt(hndl, 2);
-			bonus = SQL_FetchInt(hndl, 3);
+			JSONArray map = view_as<JSONArray>(maplistObjList.Get(i));
+			map.GetString(0, szMapName, sizeof(szMapName));
+			tier = map.GetInt(1);
+			zones = map.GetInt(2);
+			bonus = map.GetInt(3);
 
 			if (zones == 1)
 			{
 				Format(stages, sizeof(stages), "%t", "Linear");
 			}
+
 			else
 				Format(stages, sizeof(stages), "%t", "Staged", zones);
 
@@ -1360,11 +1395,11 @@ public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error,
 			{
 				Format(bonuses, sizeof(bonuses), "");
 			}
+
 			else
 				Format(bonuses, sizeof(bonuses), "%t", "Bonuses", bonus);
 
 			Format(sztier, sizeof(sztier), "%t", "Tier", tier);
-			
 			Format(szValue, sizeof(szValue), "%t", "Final Map Info", szMapName, sztier, stages, bonuses);
 
 			if (IsMapValid(szMapName) && FindStringInArray(g_MapListWhiteList, szMapName) > -1)
@@ -1372,12 +1407,68 @@ public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error,
 				g_MapList.PushString(szMapName);
 				g_MapListTier.PushString(szValue);
 			}
-			// else
-				// LogError("Error 404: Map %s was found in database but not on server! Please delete entry in database or add the map to server!", szMapName);
+
+			delete map;
 		}
+
+		delete maplistObjList;
 	}
+
 	CreateNextVote();
+	delete maplistObj;
 }
+
+// public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error, any data)
+// {
+// 	if (hndl == null)
+// 	{
+// 		LogError("[Mapchooser] SQL Error (SelectMapListCallback): %s", error);
+// 		return;
+// 	}
+
+// 	if (SQL_HasResultSet(hndl))
+// 	{
+// 		g_MapList.Clear();
+// 		g_MapListTier.Clear();
+
+// 		char szMapName[128], szValue[256], stages[128], bonuses[128], sztier[128];
+// 		int tier, zones, bonus;
+// 		while (SQL_FetchRow(hndl))
+// 		{
+// 			SQL_FetchString(hndl, 0, szMapName, sizeof(szMapName));
+// 			tier = SQL_FetchInt(hndl, 1);
+// 			zones = SQL_FetchInt(hndl, 2);
+// 			bonus = SQL_FetchInt(hndl, 3);
+
+// 			if (zones == 1)
+// 			{
+// 				Format(stages, sizeof(stages), "%t", "Linear");
+// 			}
+// 			else
+// 				Format(stages, sizeof(stages), "%t", "Staged", zones);
+
+// 			if (bonus == 0)
+// 			{
+// 				Format(bonuses, sizeof(bonuses), "");
+// 			}
+// 			else
+// 				Format(bonuses, sizeof(bonuses), "%t", "Bonuses", bonus);
+
+// 			Format(sztier, sizeof(sztier), "%t", "Tier", tier);
+			
+// 			Format(szValue, sizeof(szValue), "%t", "Final Map Info", szMapName, sztier, stages, bonuses);
+
+// 			if (IsMapValid(szMapName) && FindStringInArray(g_MapListWhiteList, szMapName) > -1)
+// 			{
+// 				g_MapList.PushString(szMapName);
+// 				g_MapListTier.PushString(szValue);
+// 			}
+// 			// else
+// 				// LogError("Error 404: Map %s was found in database but not on server! Please delete entry in database or add the map to server!", szMapName);
+// 		}
+// 	}
+// 	CreateNextVote();
+// }
 
 public void GetMapDisplayNameTier(char[] szMapName, char szBuffer[PLATFORM_MAX_PATH], int size)
 {
