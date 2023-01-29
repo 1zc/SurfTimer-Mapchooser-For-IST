@@ -34,17 +34,18 @@
 #include <mapchooser>
 #include <autoexecconfig>
 #include <colorlib>
+#include <ripext>
 
 #pragma semicolon 1
 #pragma newdecls required
 
 public Plugin myinfo =
 {
-	name = "SurfTimer Nominations",
+	name = "SurfTimer Nominations - Adapted for Infra's SurfTimer",
 	author = "AlliedModders LLC & SurfTimer Contributors",
 	description = "Provides Map Nominations",
-	version = "2.0.2",
-	url = "https://github.com/1zc/surftimer-mapchooser"
+	version = "2.0.2-IST",
+	url = "https://github.com/1zc/surftimer-mapchooser-for-ist"
 };
 
 ConVar g_Cvar_ExcludeOld;
@@ -87,10 +88,14 @@ StringMap g_mapTrie = null;
 Handle g_hDb = null;
 #define PERCENT 0x25
 
+// API Connection
+ConVar g_hAPIUrl = null;
+ConVar g_hAPIKey = null;
+
 //SQL Queries
-char sql_SelectMapListSpecific[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier = %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
-char sql_SelectMapListRange[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier >= %s AND tier <= %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
-char sql_SelectMapList[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
+// char sql_SelectMapListSpecific[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier = %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
+// char sql_SelectMapListRange[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) AND tier >= %s AND tier <= %s GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
+// char sql_SelectMapList[] = "SELECT ck_zones.mapname, tier, count(ck_zones.mapname), bonus FROM `ck_zones` INNER JOIN ck_maptier on ck_zones.mapname = ck_maptier.mapname LEFT JOIN ( SELECT mapname as map_2, MAX(ck_zones.zonegroup) as bonus FROM ck_zones GROUP BY mapname ) as a on ck_zones.mapname = a.map_2 WHERE (zonegroup = 0 AND zonetype = 1 or zonetype = 3 or zonetype = 5) GROUP BY mapname, tier, bonus ORDER BY mapname ASC";
 char sql_SelectIncompleteMapList[] = "SELECT mapname FROM ck_maptier WHERE tier > 0 AND mapname NOT IN (SELECT mapname FROM ck_playertimes WHERE steamid = '%s' AND style = %i) ORDER BY tier ASC, mapname ASC;";
 
 
@@ -126,6 +131,9 @@ public void OnPluginStart()
 
 public void OnConfigsExecuted()
 {
+	g_hAPIUrl = FindConVar("ck_api_url");
+	g_hAPIKey = FindConVar("ck_api_key");
+
 	g_ChatPrefix = FindConVar("ck_chat_prefix");
 	GetConVarString(g_ChatPrefix, g_szChatPrefix, sizeof(g_szChatPrefix));
 
@@ -168,6 +176,21 @@ public void OnConfigsExecuted()
 	}
 	
 	SelectMapList();
+}
+
+public HTTPRequest setupAPIRequest(char endpoint[128])
+{
+	char APIURL[256];
+	GetConVarString(g_hAPIUrl, APIURL, sizeof(APIURL));
+	StrCat(APIURL, sizeof(APIURL), endpoint);
+
+	HTTPRequest request = new HTTPRequest(APIURL);
+
+	char APIKey[256];
+	GetConVarString(g_hAPIKey, APIKey, sizeof(APIKey));
+	request.SetHeader("Authorization", APIKey);
+
+	return request;
 }
 
 public void OnNominationRemoved(const char[] map, int owner)
@@ -704,30 +727,40 @@ public void db_setupDatabase()
 
 public void SelectMapList()
 {
-	char szQuery[512];
+	char requestURL[128];
 	
 	if (StrEqual(g_szBuffer[1], "0"))
-		// OLD QUERY Format(szQuery, sizeof(szQuery), "SELECT mapname, tier FROM ck_maptier WHERE tier = %s ORDER BY tier asc, mapname asc;", szBuffer[0]);
-		Format(szQuery, sizeof(szQuery), sql_SelectMapListSpecific, g_szBuffer[0]);
-	else if (strlen(g_szBuffer[1]) > 0)
-		// OLD QUERY Format(szQuery, sizeof(szQuery), "SELECT mapname, tier FROM ck_maptier WHERE tier >= %s AND tier <= %s ORDER BY tier asc, mapname asc;", szBuffer[0], szBuffer[1]);
-		Format(szQuery, sizeof(szQuery), sql_SelectMapListRange, g_szBuffer[0], g_szBuffer[1]);
-	else
-		// OLD QUERY Format(szQuery, sizeof(szQuery), "SELECT mapname, tier FROM ck_maptier ORDER BY tier asc, mapname asc;");
-		Format(szQuery, sizeof(szQuery), sql_SelectMapList);
-
-	SQL_TQuery(g_hDb, SelectMapListCallback, szQuery, DBPrio_Low);
-}
-
-public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error, any data)
-{
-	if (hndl == null)
 	{
-		LogError("[Nominations] SQL Error (SelectMapListCallback): %s", error);
-		return;
+		// Format(szQuery, sizeof(szQuery), sql_SelectMapListSpecific, g_szBuffer[0]);
+		Format(requestURL, sizeof(requestURL), "mapchooser/viewMapList/%s/0", g_szBuffer[0]);
 	}
 
-	if (SQL_HasResultSet(hndl))
+	else if (strlen(g_szBuffer[1]) > 0)
+	{
+		// Format(szQuery, sizeof(szQuery), sql_SelectMapListRange, g_szBuffer[0], g_szBuffer[1]);
+		Format(requestURL, sizeof(requestURL), "mapchooser/viewMapList/%s/%s", g_szBuffer[0], g_szBuffer[1]);
+	}
+
+	else
+	{
+		// Format(szQuery, sizeof(szQuery), sql_SelectMapList);
+		Format(requestURL, sizeof(requestURL), "mapchooser/viewMapList/0/0");
+	}
+
+	// SQL_TQuery(g_hDb, SelectMapListCallback, szQuery, DBPrio_Low);
+	HTTPRequest request = setupAPIRequest(requestURL);
+	request.Get(API_SelectMapListCallback);
+}
+
+public void API_SelectMapListCallback(HTTPResponse response, any data)
+{
+	if (response.Status != HTTPStatus_OK)
+    {
+		LogError("IST-NOMINATIONS >> FATAL ERROR >> Failed to GET mapchooser/viewMapList.");
+	}
+
+	JSONObject maplistObj = view_as<JSONObject>(response.Data);
+	if (!maplistObj.IsNull("maplist"))
 	{
 		g_MapList.Clear();
 		g_MapListTier.Clear();
@@ -735,12 +768,15 @@ public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error,
 
 		int tier, zones, bonus;
 		char szValue[256], szMapName[128], stages[128], bonuses[128], sztier[128];
-		while (SQL_FetchRow(hndl))
+
+		JSONArray maplistObjList = view_as<JSONArray>(maplistObj.Get("maplist"));
+		for (int i = 0; i < maplistObjList.Length; i++)
 		{
-			SQL_FetchString(hndl, 0, szMapName, sizeof(szMapName));
-			tier = SQL_FetchInt(hndl, 1);
-			zones = SQL_FetchInt(hndl, 2);
-			bonus = SQL_FetchInt(hndl, 3);
+			JSONArray map = view_as<JSONArray>(maplistObjList.Get(i));
+			map.GetString(0, szMapName, sizeof(szMapName));
+			tier = map.GetInt(1);
+			zones = map.GetInt(2);
+			bonus = map.GetInt(3);
 
 			if (zones == 1)
 			{
@@ -766,9 +802,11 @@ public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error,
 				g_MapListTier.PushString(szValue);
 				g_MapTierInt.Push(tier);
 			}
-			// else
-				// LogError("Error 404: Map %s was found in database but not on server! Please delete entry in database or add the map to server!", szMapName);
+
+			delete map;
 		}
+
+		delete maplistObjList;
 
 		BuildMapMenu();
 
@@ -777,6 +815,8 @@ public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error,
 			BuildTierMenus();
 		}
 	}
+
+	delete maplistObj;
 }
 
 // COPY PASTA TIME! https://github.com/Sneaks-Community/sourcemod-mapchooser-extended/
