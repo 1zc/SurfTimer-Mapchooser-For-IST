@@ -142,7 +142,7 @@ public void OnPluginStart()
 {
 	LoadTranslations("st-mapchooser.phrases");
 
-	// db_setupDatabase();
+	db_setupDatabase();
 	
 	int arraySize = ByteCountToCells(PLATFORM_MAX_PATH);
 	g_MapList = new ArrayList(arraySize);
@@ -1311,23 +1311,23 @@ public int Native_GetNominatedMapList(Handle plugin, int numParams)
 	return 0;
 }
 
-// public void db_setupDatabase()
-// {
-// 	char szError[255];
-// 	g_hDb = SQL_Connect("surftimer", false, szError, 255);
+public void db_setupDatabase()
+{
+	char szError[255];
+	g_hDb = SQL_Connect("surftimer", false, szError, 255);
 
-// 	if (g_hDb == null)
-// 		SetFailState("[Mapchooser] Unable to connect to database (%s)", szError);
+	if (g_hDb == null)
+		SetFailState("[Mapchooser] Unable to connect to database (%s)", szError);
 	
-// 	char szIdent[8];
-// 	SQL_ReadDriver(g_hDb, szIdent, 8);
+	char szIdent[8];
+	SQL_ReadDriver(g_hDb, szIdent, 8);
 
-// 	if (!StrEqual(szIdent, "mysql", false))
-// 	{
-// 		SetFailState("[Mapchooser] Invalid database type");
-// 		return;
-// 	}
-// }
+	if (!StrEqual(szIdent, "mysql", false))
+	{
+		SetFailState("[Mapchooser] Invalid database type");
+		return;
+	}
+}
 
 public void SelectMapList()
 {
