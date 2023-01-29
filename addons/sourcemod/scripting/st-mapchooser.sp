@@ -1418,58 +1418,6 @@ public void API_SelectMapListCallback(HTTPResponse response, any data)
 	delete maplistObj;
 }
 
-// public void SelectMapListCallback(Handle owner, Handle hndl, const char[] error, any data)
-// {
-// 	if (hndl == null)
-// 	{
-// 		LogError("[Mapchooser] SQL Error (SelectMapListCallback): %s", error);
-// 		return;
-// 	}
-
-// 	if (SQL_HasResultSet(hndl))
-// 	{
-// 		g_MapList.Clear();
-// 		g_MapListTier.Clear();
-
-// 		char szMapName[128], szValue[256], stages[128], bonuses[128], sztier[128];
-// 		int tier, zones, bonus;
-// 		while (SQL_FetchRow(hndl))
-// 		{
-// 			SQL_FetchString(hndl, 0, szMapName, sizeof(szMapName));
-// 			tier = SQL_FetchInt(hndl, 1);
-// 			zones = SQL_FetchInt(hndl, 2);
-// 			bonus = SQL_FetchInt(hndl, 3);
-
-// 			if (zones == 1)
-// 			{
-// 				Format(stages, sizeof(stages), "%t", "Linear");
-// 			}
-// 			else
-// 				Format(stages, sizeof(stages), "%t", "Staged", zones);
-
-// 			if (bonus == 0)
-// 			{
-// 				Format(bonuses, sizeof(bonuses), "");
-// 			}
-// 			else
-// 				Format(bonuses, sizeof(bonuses), "%t", "Bonuses", bonus);
-
-// 			Format(sztier, sizeof(sztier), "%t", "Tier", tier);
-			
-// 			Format(szValue, sizeof(szValue), "%t", "Final Map Info", szMapName, sztier, stages, bonuses);
-
-// 			if (IsMapValid(szMapName) && FindStringInArray(g_MapListWhiteList, szMapName) > -1)
-// 			{
-// 				g_MapList.PushString(szMapName);
-// 				g_MapListTier.PushString(szValue);
-// 			}
-// 			// else
-// 				// LogError("Error 404: Map %s was found in database but not on server! Please delete entry in database or add the map to server!", szMapName);
-// 		}
-// 	}
-// 	CreateNextVote();
-// }
-
 public void GetMapDisplayNameTier(char[] szMapName, char szBuffer[PLATFORM_MAX_PATH], int size)
 {
 	bool bFound = false;
